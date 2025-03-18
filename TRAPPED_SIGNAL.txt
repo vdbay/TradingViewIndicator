@@ -1,0 +1,119 @@
+//@version=6
+indicator("[v2] VDBay Aggregated OI (Binance USDT, USD, BUSD) + Signal (Trapped with CVD)", "VDBay Aggregated OI [v2]")
+
+// Define groups for input settings
+g1_vdbay="General"
+g2_vdbay="CVD"
+g3_vdbay="OI"
+
+// ────────────────────────────────────────────────────────────
+// Fetching Open Interest (OI) data from Binance for USDT, USD, and BUSD pairs
+[vdbay_oid1, vdbay_oic1, vdbay_oio1, vdbay_oih1, vdbay_oil1] = request.security('BINANCE' + ":" + string(syminfo.basecurrency) + 'USDT.P_OI', timeframe.period, [close-close[1], close, open, high, low], ignore_invalid_symbol = true)
+[vdbay_oid2, vdbay_oic2, vdbay_oio2, vdbay_oih2, vdbay_oil2] = request.security('BINANCE' + ":" + string(syminfo.basecurrency) + 'USD.P_OI', timeframe.period, [close-close[1], close, open, high, low], ignore_invalid_symbol = true)
+[vdbay_oid3, vdbay_oic3, vdbay_oio3, vdbay_oih3, vdbay_oil3] = request.security('BINANCE' + ":" + string(syminfo.basecurrency) + 'BUSD.P_OI', timeframe.period, [close-close[1], close, open, high, low], ignore_invalid_symbol = true)
+
+// Summing the Open Interest changes across all three stablecoin pairs
+vdbay_deltaOI = nz(vdbay_oid1,0) + nz(vdbay_oid2,0) + nz(vdbay_oid3,0)
+
+// ────────────────────────────────────────────────────────────
+// Calculating OHLC values for plotting candles based on OI data
+vdbay_o = nz(vdbay_oio1, 0) + nz(vdbay_oio2/close, 0) + nz(vdbay_oio3, 0)
+vdbay_h = nz(vdbay_oih1, 0) + nz(vdbay_oih2/close, 0) + nz(vdbay_oih3, 0)
+vdbay_l = nz(vdbay_oil1, 0) + nz(vdbay_oil2/close, 0) + nz(vdbay_oil3, 0)
+vdbay_c = nz(vdbay_oic1, 0) + nz(vdbay_oic2/close, 0) + nz(vdbay_oic3, 0)
+
+// Adjusting values to reflect price action
+vdbay_h_ = vdbay_h * close
+vdbay_l_ = vdbay_l * close
+vdbay_c_ = vdbay_c * close
+vdbay_o_ = vdbay_c_[1]
+
+// Color settings for bullish/bearish bars
+vdbay_plotColor = vdbay_c_ >= vdbay_o_ ? color.teal : color.red
+
+import TradingView/ta/8
+
+// ────────────────────────────────────────────────────────────
+// Customizable input settings for CVD analysis
+vdbay_anchorInput = input.timeframe("1D", "Anchor period", group = g2_vdbay)
+vdbay_useCustomTimeframeInput = input.bool(false, "Use custom timeframe", group = g2_vdbay)
+vdbay_lowerTimeframeInput = input.timeframe("1", "Timeframe", group = g2_vdbay)
+
+var vdbay_lowerTimeframe = switch
+    vdbay_useCustomTimeframeInput => vdbay_lowerTimeframeInput
+    timeframe.isseconds           => "1S"
+    timeframe.isintraday          => "1"
+    timeframe.isdaily             => "5"
+    => "60"
+
+// Fetching volume delta data using the selected timeframe
+[vdbay_openVolume, vdbay_maxVolume, vdbay_minVolume, vdbay_lastVolume] = ta.requestVolumeDelta(vdbay_lowerTimeframe, vdbay_anchorInput)
+
+// Setting colors for positive (green) and negative (red) CVD bars
+vdbay_col = vdbay_lastVolume >= vdbay_openVolume ? color.rgb(0, 137, 123, 80) : color.rgb(255, 82, 82, 80)
+bgcolor(vdbay_col)
+
+// ────────────────────────────────────────────────────────────
+// Handling missing volume data error
+var vdbay_cumVol = 0.
+vdbay_cumVol += nz(volume)
+if barstate.islast and vdbay_cumVol == 0
+    runtime.error("The data vendor doesn't provide volume data for this symbol.")
+
+// ────────────────────────────────────────────────────────────
+// Plotting Aggregated OI Candles on the Chart
+plotcandle(vdbay_o_, vdbay_h_, vdbay_l_, vdbay_c_, color = vdbay_plotColor, wickcolor = vdbay_plotColor, bordercolor = vdbay_plotColor)
+
+// ────────────────────────────────────────────────────────────
+// Detecting trapped traders using volume and price movement
+vdbay_reconfirm = input.bool(true, "Re-Confirmed Trapped", group = g3_vdbay)
+
+// Identifying trapped buyers
+vdbay_trappedBuyerColor = (not vdbay_reconfirm) and (vdbay_c_ >= vdbay_o_) and (vdbay_lastVolume >= vdbay_openVolume) and (open > close) ? color.teal : na
+
+// Identifying trapped sellers
+vdbay_trappedSellerColor = (not vdbay_reconfirm) and (vdbay_c_ >= vdbay_o_) and (vdbay_openVolume >= vdbay_lastVolume) and (close > open) ? color.red : na
+
+// Coloring the bars where traders are trapped
+barcolor(vdbay_trappedBuyerColor)
+barcolor(vdbay_trappedSellerColor)
+
+// ────────────────────────────────────────────────────────────
+// Potential trapped traders (not confirmed yet)
+vdbay_potentionalTrappedBuyerColor = (vdbay_reconfirm) and (vdbay_c_ >= vdbay_o_) and (vdbay_lastVolume >= vdbay_openVolume) and (open > close) and (not barstate.isconfirmed) ? color.blue : na
+vdbay_potentionalTrappedSellerColor = (vdbay_reconfirm) and (vdbay_c_ >= vdbay_o_) and (vdbay_openVolume >= vdbay_lastVolume) and (close > open) and (not barstate.isconfirmed) ? color.fuchsia : na
+
+barcolor(vdbay_potentionalTrappedBuyerColor)
+barcolor(vdbay_potentionalTrappedSellerColor)
+
+// ────────────────────────────────────────────────────────────
+// Reconfirming trapped traders with an extra bar check
+vdbay_trappedBuyerReconfirmColor2 = (vdbay_reconfirm) and (vdbay_c_[1] >= vdbay_o_[1]) and (vdbay_lastVolume[1] >= vdbay_openVolume[1]) and (open[1] > close[1]) and (open > close) and (not barstate.isconfirmed) ? color.blue : na
+vdbay_trappedSellerReconfirmColor2 = (vdbay_reconfirm) and (vdbay_c_[1] >= vdbay_o_[1]) and (vdbay_openVolume[1] >= vdbay_lastVolume[1]) and (close[1] > open[1]) and (close > open) and (not barstate.isconfirmed) ? color.fuchsia : na
+
+barcolor(vdbay_trappedBuyerReconfirmColor2, offset = -1)
+barcolor(vdbay_trappedSellerReconfirmColor2, offset = -1)
+
+// Reconfirming trapped traders with an extra bar check v2
+moreLow=low[1]>close[1]?close[1]:open[1]
+moreHigh=open[1]>close[1]?open[1]:close[1]
+vdbay_trappedBuyerReconfirmColor4 = (vdbay_reconfirm) and (vdbay_c_[1] >= vdbay_o_[1]) and (vdbay_lastVolume[1] >= vdbay_openVolume[1]) and (low[1] > low) and (high[1] > high) and (not barstate.isconfirmed) ? color.blue : na
+vdbay_trappedSellerReconfirmColor4 = (vdbay_reconfirm) and (vdbay_c_[1] >= vdbay_o_[1]) and (vdbay_openVolume[1] >= vdbay_lastVolume[1]) and (high > high[1]) and (low > low[1]) and (not barstate.isconfirmed) ? color.fuchsia : na
+
+barcolor(vdbay_trappedBuyerReconfirmColor4, offset = -1)
+barcolor(vdbay_trappedSellerReconfirmColor4, offset = -1)
+
+// Final confirmation of trapped traders after reconfirmation check
+vdbay_trappedBuyerReconfirmColor = (vdbay_reconfirm) and (vdbay_c_[1] >= vdbay_o_[1]) and (vdbay_lastVolume[1] >= vdbay_openVolume[1]) and (open[1] > close[1]) and (open > close) and barstate.isconfirmed ? color.teal : na
+vdbay_trappedSellerReconfirmColor = (vdbay_reconfirm) and (vdbay_c_[1] >= vdbay_o_[1]) and (vdbay_openVolume[1] >= vdbay_lastVolume[1]) and (close[1] > open[1]) and (close > open) and barstate.isconfirmed ? color.red : na
+
+barcolor(vdbay_trappedBuyerReconfirmColor, offset = -1)
+barcolor(vdbay_trappedSellerReconfirmColor, offset = -1)
+
+// Final confirmation of trapped traders after reconfirmation check v2
+vdbay_trappedBuyerReconfirmColor3 = (vdbay_reconfirm) and (vdbay_c_[1] >= vdbay_o_[1]) and (vdbay_lastVolume[1] >= vdbay_openVolume[1]) and (low[1] > low) and (high[1] > high) and barstate.isconfirmed ? color.teal : na
+vdbay_trappedSellerReconfirmColor3 = (vdbay_reconfirm) and (vdbay_c_[1] >= vdbay_o_[1]) and (vdbay_openVolume[1] >= vdbay_lastVolume[1]) and (high > high[1]) and (low > low[1]) and barstate.isconfirmed ? color.red : na
+
+barcolor(vdbay_trappedBuyerReconfirmColor3, offset = -1)
+barcolor(vdbay_trappedSellerReconfirmColor3, offset = -1)
+
