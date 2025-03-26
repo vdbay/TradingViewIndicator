@@ -1,0 +1,133 @@
+//@version=6
+indicator("Trapped Signal (CVD + AGGREGATED BINANCE OI)", "Trapped Signal", true)
+
+import TradingView/ta/8
+
+isChartBull = close >= open
+
+// Group Input
+group1="General"
+group2="CVD"
+group3="OI"
+group4="Signal"
+
+// Input General
+colCVDBull = input.color(color.rgb(0, 137, 123, 80), "Bullish CVD Background Color", group = group1)
+colCVDBear = input.color(color.rgb(255, 82, 82, 80), "Bullish CVD Background Color", group = group1)
+colBull = input.color(color.teal, "Confirmed Bullish Candle Color", group = group1)
+colBear = input.color(color.red, "Confirmed Bearish Candle Color", group = group1)
+colBullUnc = input.color(color.teal, "Unconfirmed Bullish Candle Color", group = group1)
+colBearUnc = input.color(color.red, "Unconfirmed Bearish Candle Color", group = group1)
+
+// Input CVD
+anchorInput = input.timeframe("1D", "Anchor period", group = group2)
+lowerTimeframeTooltip = "The indicator scans lower timeframe data to approximate up and down volume used in the delta calculation. By default, the timeframe is chosen automatically. These inputs override this with a custom timeframe.
+ \n\n\n\nHigher timeframes provide more historical data, but the data will be less precise."
+useCustomTimeframeInput = input.bool(false, "Use custom timeframe", tooltip = lowerTimeframeTooltip, group = group2)
+lowerTimeframeInput = input.timeframe("1", "Timeframe", group = group2)
+
+// Input OI
+
+// Input Signal
+isAlgo1Enabled = input.bool(true, "Algo 1","BUY: OI GREEN, CVD RED, CHART GREEN\n\nSELL: OI GREEN, CVD GREEN, CHART RED", group = group4)
+isAlgo2Enabled = input.bool(true ,"Algo 2","BUY: OI GREEN, CVD RED, CHART GREEN, AND NEXT CANDLE GREEN\n\nSELL: OI GREEN, CVD GREEN, CHART RED, AND NEXT CANDLE RED", group = group4)
+isAlgo3Enabled = input.bool(true ,"Algo 3","BUY: OI GREEN, CVD RED, CHART GREEN, AND NEXT CANDLE IS UPPER (HIGHER LOW)\n\nSELL: OI GREEN, CVD GREEN, CHART RED, AND NEXT CANDLE IS LOWER (LOWER HIGH)", group = group4)
+isAlgo4Enabled = input.bool(true ,"Algo 4","BUY: OI GREEN, CVD RED, CHART GREEN, AND NEXT CANDLE IS UPPER (HIGHER LOW & HIGHER HIGH)\n\nSELL: OI GREEN, CVD GREEN, CHART RED, AND NEXT CANDLE IS LOWER (LOWER HIGH & LOWER LOW)", group = group4)
+isAlgo5Enabled = input.bool(true ,"Algo 5","BUY: OI GREEN, CVD RED, CHART GREEN, AND NEXT CANDLE GREEN, AND BEFORE CANDLE RED\n\nSELL: OI GREEN, CVD GREEN, CHART RED, AND NEXT CANDLE RED, AND BEFORE CANDLE GREEN", group = group4)
+isAlgo6Enabled = input.bool(true ,"Algo 6","BUY: OI GREEN, CVD RED, CHART GREEN, AND NEXT CANDLE IS UPPER (HIGHER LOW), AND BEFORE CANDLE IS UPPER (HIGHER LOW)\n\nSELL: OI GREEN, CVD GREEN, CHART RED, AND NEXT CANDLE IS LOWER (LOWER HIGH), AND BEFORE CANDLE IS LOWER (LOWER HIGH)", group = group4)
+isAlgo7Enabled = input.bool(true ,"Algo 7","BUY: OI GREEN, CVD RED, CHART GREEN, AND NEXT CANDLE IS UPPER (HIGHER LOW & HIGHER HIGH) AND BEFORE CANDLE IS UPPER (HIGHER LOW & HIGHER HIGH)\n\nSELL: OI GREEN, CVD GREEN, CHART RED, AND NEXT CANDLE IS LOWER (LOWER HIGH & LOWER LOW) AND CANDLE IS LOWER (LOWER HIGH & LOWER LOW)", group = group4)
+
+// MAIN CVD LOGIC
+var lowerTimeframe = switch
+    useCustomTimeframeInput => lowerTimeframeInput
+    timeframe.isseconds     => "1S"
+    timeframe.isintraday    => "1"
+    timeframe.isdaily       => "5"
+    => "60"
+
+[openCVD, highCVD, lowCVD, closeCVD] = ta.requestVolumeDelta(lowerTimeframe, anchorInput)
+
+isCVDBull = closeCVD >= openCVD
+
+// MAIN OI LOGIC
+[openOIUSDT, highOIUSDT, lowOIUSDT, closeOIUSDT] = request.security('BINANCE' + ":" + string(syminfo.basecurrency) + 'USDT.P_OI', timeframe.period, [open, high, low, close], ignore_invalid_symbol = true)
+[openOIUSD, highOIUSD, lowOIUSD, closeOIUSD] = request.security('BINANCE' + ":" + string(syminfo.basecurrency) + 'USD.P_OI', timeframe.period, [open, high, low, close], ignore_invalid_symbol = true)
+[openOIBUSD, highOIBUSD, lowOIBUSD, closeOIBUSD] = request.security('BINANCE' + ":" + string(syminfo.basecurrency) + 'BUSD.P_OI', timeframe.period, [open, high, low, close], ignore_invalid_symbol = true)
+
+highOI = nz(highOIUSDT, 0) + nz(highOIUSD/close, 0) + nz(highOIBUSD, 0)
+lowOI = nz(lowOIUSDT, 0) + nz(lowOIUSD/close, 0) + nz(lowOIBUSD, 0)
+closeOI = nz(closeOIUSDT, 0) + nz(closeOIUSD/close, 0) + nz(closeOIBUSD, 0)
+openOI = closeOI[1]
+
+isOIBull = closeOI >= openOI
+
+// SIGNAL Algo 1 LOGIC
+// BUY: OI GREEN, CVD RED, CHART GREEN
+// SELL: OI GREEN, CVD GREEN, CHART RED
+algo1BuySignal = isOIBull and (not isCVDBull) and isChartBull and barstate.isconfirmed
+algo1SellSignal = isOIBull and isCVDBull and (not isChartBull) and barstate.isconfirmed
+plotshape(isAlgo1Enabled ? algo1BuySignal : false, "Algo 1 Buy Signal", shape.triangleup, location.belowbar, colBull, text = "Buy 1", textcolor = colBull, size = size.auto, force_overlay = true)
+plotshape(isAlgo1Enabled ? algo1SellSignal : false, "Algo 1 Sell Signal", shape.triangledown, location.abovebar, colBear, text = "Sell 1", textcolor = colBear, size = size.auto, force_overlay = true)
+barcolor(isAlgo1Enabled and algo1BuySignal? colBull:na)
+barcolor(isAlgo1Enabled and algo1SellSignal? colBear:na)
+
+// SIGNAL Algo 2 LOGIC
+// BUY: OI GREEN, CVD RED, CHART GREEN, AND NEXT CANDLE GREEN
+// SELL: OI GREEN, CVD GREEN, CHART RED, AND NEXT CANDLE RED
+algo2BuySignal = isOIBull[1] and (not isCVDBull[1]) and isChartBull[1] and barstate.isconfirmed and isChartBull
+algo2SellSignal = isOIBull[1] and isCVDBull[1] and (not isChartBull[1]) and barstate.isconfirmed and (not isChartBull)
+plotshape(isAlgo2Enabled ? algo2BuySignal : false, "Algo 2 Buy Signal", shape.triangleup, location.belowbar, colBull, offset = -1, text = "Buy 2", textcolor = colBull, size = size.auto, force_overlay = true)
+plotshape(isAlgo2Enabled ? algo2SellSignal : false, "Algo 2 Sell Signal", shape.triangledown, location.abovebar, colBear, offset = -1, text = "Sell 2", textcolor = colBear, size = size.auto, force_overlay = true)
+barcolor(isAlgo2Enabled and algo2BuySignal? colBull:na, offset = -1)
+barcolor(isAlgo2Enabled and algo2SellSignal? colBear:na, offset = -1)
+
+// SIGNAL Algo 3 LOGIC
+// BUY: OI GREEN, CVD RED, CHART GREEN, AND NEXT CANDLE IS UPPER (HIGHER LOW)
+// SELL: OI GREEN, CVD GREEN, CHART RED, AND NEXT CANDLE IS LOWER (LOWER HIGH)
+algo3BuySignal = isOIBull[1] and (not isCVDBull[1]) and isChartBull[1] and barstate.isconfirmed and isChartBull and (low > low[1])
+algo3SellSignal = isOIBull[1] and isCVDBull[1] and (not isChartBull[1]) and barstate.isconfirmed and (not isChartBull) and (high < high[1])
+plotshape(isAlgo3Enabled ? algo3BuySignal : false, "Algo 3 Buy Signal", shape.triangleup, location.belowbar, colBull, offset = -1, text = "Buy 3", textcolor = colBull, size = size.auto, force_overlay = true)
+plotshape(isAlgo3Enabled ? algo3SellSignal : false, "Algo 3 Sell Signal", shape.triangledown, location.abovebar, colBear, offset = -1, text = "Sell 3", textcolor = colBear, size = size.auto, force_overlay = true)
+barcolor(isAlgo3Enabled and algo3BuySignal? colBull:na, offset = -1)
+barcolor(isAlgo3Enabled and algo3SellSignal? colBear:na, offset = -1)
+
+// SIGNAL Algo 4 LOGIC
+// BUY: OI GREEN, CVD RED, CHART GREEN, AND NEXT CANDLE IS UPPER (HIGHER LOW & HIGHER HIGH)
+// SELL: OI GREEN, CVD GREEN, CHART RED, AND NEXT CANDLE IS LOWER (LOWER HIGH & LOWER LOW)
+algo4BuySignal = isOIBull[1] and (not isCVDBull[1]) and isChartBull[1] and barstate.isconfirmed and isChartBull and (low > low[1]) and (high > high[1])
+algo4SellSignal = isOIBull[1] and isCVDBull[1] and (not isChartBull[1]) and barstate.isconfirmed and (not isChartBull) and (high < high[1]) and (low < low[1])
+plotshape(isAlgo4Enabled ? algo4BuySignal : false, "Algo 4 Buy Signal", shape.triangleup, location.belowbar, colBull, offset = -1, text = "Buy 4", textcolor = colBull, size = size.auto, force_overlay = true)
+plotshape(isAlgo4Enabled ? algo4SellSignal : false, "Algo 4 Sell Signal", shape.triangledown, location.abovebar, colBear, offset = -1, text = "Sell 4", textcolor = colBear, size = size.auto, force_overlay = true)
+barcolor(isAlgo4Enabled and algo4BuySignal? colBull:na, offset = -1)
+barcolor(isAlgo4Enabled and algo4SellSignal? colBear:na, offset = -1)
+
+
+// SIGNAL Algo 5 LOGIC
+// BUY: OI GREEN, CVD RED, CHART GREEN, AND NEXT CANDLE GREEN, AND BEFORE CANDLE RED
+// SELL: OI GREEN, CVD GREEN, CHART RED, AND NEXT CANDLE RED, AND BEFORE CANDLE GREEN   
+algo5BuySignal = isOIBull[1] and (not isCVDBull[1]) and isChartBull[1] and barstate.isconfirmed and isChartBull and (not isChartBull[2])
+algo5SellSignal = isOIBull[1] and isCVDBull[1] and (not isChartBull[1]) and barstate.isconfirmed and (not isChartBull) and isChartBull[2]
+plotshape(isAlgo5Enabled ? algo5BuySignal : false, "Algo 5 Buy Signal", shape.triangleup, location.belowbar, colBull, offset = -1, text = "Buy 5", textcolor = colBull, size = size.auto, force_overlay = true)
+plotshape(isAlgo5Enabled ? algo5SellSignal : false, "Algo 5 Sell Signal", shape.triangledown, location.abovebar, colBear, offset = -1, text = "Sell 5", textcolor = colBear, size = size.auto, force_overlay = true)
+barcolor(isAlgo5Enabled and algo5BuySignal? colBull:na, offset = -1)
+barcolor(isAlgo5Enabled and algo5SellSignal? colBear:na, offset = -1)
+
+// SIGNAL Algo 6 LOGIC
+// BUY: OI GREEN, CVD RED, CHART GREEN, AND NEXT CANDLE IS UPPER (HIGHER LOW), AND BEFORE CANDLE IS UPPER (HIGHER LOW)
+// SELL: OI GREEN, CVD GREEN, CHART RED, AND NEXT CANDLE IS LOWER (LOWER HIGH), AND BEFORE CANDLE IS LOWER (LOWER HIGH)
+algo6BuySignal = isOIBull[1] and (not isCVDBull[1]) and isChartBull[1] and barstate.isconfirmed and isChartBull and (low > low[1]) and (low[2] > low[1])
+algo6SellSignal = isOIBull[1] and isCVDBull[1] and (not isChartBull[1]) and barstate.isconfirmed and (not isChartBull) and (high < high[1]) and (high[2] < high[1])
+plotshape(isAlgo6Enabled ? algo6BuySignal : false, "Algo 6 Buy Signal", shape.triangleup, location.belowbar, colBull, offset = -1, text = "Buy 6", textcolor = colBull, size = size.auto, force_overlay = true)
+plotshape(isAlgo6Enabled ? algo6SellSignal : false, "Algo 6 Sell Signal", shape.triangledown, location.abovebar, colBear, offset = -1, text = "Sell 6", textcolor = colBear, size = size.auto, force_overlay = true)
+barcolor(isAlgo6Enabled and algo6BuySignal? colBull:na, offset = -1)
+barcolor(isAlgo6Enabled and algo6SellSignal? colBear:na, offset = -1)
+
+// SIGNAL Algo 7 LOGIC
+// BUY: OI GREEN, CVD RED, CHART GREEN, AND NEXT CANDLE IS UPPER (HIGHER LOW & HIGHER HIGH) AND BEFORE CANDLE IS UPPER (HIGHER LOW & HIGHER HIGH)
+// SELL: OI GREEN, CVD GREEN, CHART RED, AND NEXT CANDLE IS LOWER (LOWER HIGH & LOWER LOW) AND CANDLE IS LOWER (LOWER HIGH & LOWER LOW)
+algo7BuySignal = isOIBull[1] and (not isCVDBull[1]) and isChartBull[1] and barstate.isconfirmed and isChartBull and (low > low[1]) and (high > high[1]) and (low[2] > low[1]) and (high[2] > high[1])
+algo7SellSignal = isOIBull[1] and isCVDBull[1] and (not isChartBull[1]) and barstate.isconfirmed and (not isChartBull) and (high < high[1]) and (low < low[1]) and (high[2] < high[1]) and (low[2] < low[1]) 
+plotshape(isAlgo7Enabled ? algo7BuySignal : false, "Algo 7 Buy Signal", shape.triangleup, location.belowbar, colBull, offset = -1, text = "Buy 7", textcolor = colBull, size = size.auto, force_overlay = true)
+plotshape(isAlgo7Enabled ? algo7SellSignal : false, "Algo 7 Sell Signal", shape.triangledown, location.abovebar, colBear, offset = -1, text = "Sell 7", textcolor = colBear, size = size.auto, force_overlay = true)
+barcolor(isAlgo7Enabled and algo7BuySignal? colBull:na, offset = -1)
+barcolor(isAlgo7Enabled and algo7SellSignal? colBear:na, offset = -1)
